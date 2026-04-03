@@ -116,12 +116,13 @@ G --> F
 
 Clone the repository:
 
-git clone <repo-url>
-cd transcript-chatbot
+- git clone "repo-url"
+
+- cd transcript-chatbot
 
 Install dependencies:
 
-pip install -r requirements.txt
+- pip install -r requirements.txt
 
 ---
 
