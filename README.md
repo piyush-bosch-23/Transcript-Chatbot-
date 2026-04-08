@@ -169,10 +169,10 @@ Standard command:
 python -m streamlit run app_ui.py
 ```
 
-If Streamlit is installed only in your `langgraph-agent` conda environment, run:
+If Streamlit is installed only in your `<env-name>` conda environment, run:
 
 ```powershell
-& "C:\Users\<NT-ID>\.conda\envs\langgraph-agent\python.exe" -m streamlit run app_ui.py
+& "C:\Users\<NT-ID>\.conda\envs\<env-name>\python.exe" -m streamlit run app_ui.py
 ```
 
 The Streamlit app provides:
@@ -233,7 +233,7 @@ If you see proxy or connection errors:
 Run it with:
 
 ```powershell
-& "C:\Users\<NT-ID>\.conda\envs\langgraph-agent\python.exe" -m streamlit run app_ui.py
+& "C:\Users\<NT-ID>\.conda\envs\<env-name>\python.exe" -m streamlit run app_ui.py
 ```
 
 This uses the environment where Streamlit is installed.
