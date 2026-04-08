@@ -6,8 +6,6 @@ from langgraph.graph.message import add_messages
 
 from app.bosch_client import ask_bosch
 from app.config import (
-    COURSE_NAME,
-    CHAPTERS,
     SUMMARY_TRIGGER_MESSAGE_COUNT,
     KEEP_LAST_MESSAGES,
     ANSWER_RECENT_MESSAGES,
@@ -20,6 +18,8 @@ class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     summary: str
     retrieved_context: str
+    retrieved_sources: list[str]
+    retrieved_context_chunks: list[dict[str, str]]
     has_context: bool
 
 
@@ -35,24 +35,24 @@ def build_graph(retriever):
         if not last_user_msg:
             return {
                 "retrieved_context": "",
+                "retrieved_sources": [],
+                "retrieved_context_chunks": [],
                 "has_context": False,
             }
 
-        context, has_context = get_relevant_context(retriever, last_user_msg)
+        context, has_context, source_names, context_chunks = get_relevant_context(retriever, last_user_msg)
 
         return {
             "retrieved_context": context,
+            "retrieved_sources": source_names,
+            "retrieved_context_chunks": context_chunks,
             "has_context": has_context,
         }
 
     def answer_from_context(state: ChatState) -> dict:
         print("\n[Node] answer_from_context")
-        chapters_text = "\n".join([f"{i+1}. {name}" for i, name in enumerate(CHAPTERS)])
-
         system_prompt = (
-            f"You are a helpful course chatbot for the transcript document of the course "
-            f"'{COURSE_NAME}'.\n"
-            f"The transcript covers these chapters:\n{chapters_text}\n\n"
+            "You are a helpful chatbot for the provided transcript documents.\n"
             "Rules:\n"
             "- Answer only from the retrieved transcript context.\n"
             "- Use the conversation summary when useful for continuity.\n"
@@ -82,7 +82,7 @@ def build_graph(retriever):
     def answer_no_context(state: ChatState) -> dict:
         print("\n[Node] answer_no_context")
         system_prompt = (
-            "You are a helpful course chatbot. "
+            "You are a helpful transcript chatbot. "
             "If no transcript support is available, say so clearly and do not invent facts. "
             "End with: 'What more would you like to know?'"
         )

@@ -2,13 +2,22 @@ import os
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, SystemMessage
 
 
-def find_docx_file() -> str:
-    files = [f for f in os.listdir(".") if f.lower().endswith(".docx")]
-    if not files:
-        raise FileNotFoundError("No .docx file found in the current directory.")
+def find_docx_files(folder: str) -> list[str]:
+    if not os.path.isdir(folder):
+        raise FileNotFoundError(f"Transcript folder not found: {folder}")
 
-    preferred = [f for f in files if "data" in f.lower()]
-    return preferred[0] if preferred else files[0]
+    files = [
+        os.path.join(folder, file_name)
+        for file_name in os.listdir(folder)
+        if file_name.lower().endswith(".docx")
+    ]
+
+    files.sort(key=lambda p: os.path.basename(p).lower())
+
+    if not files:
+        raise FileNotFoundError(f"No .docx files found in folder: {folder}")
+
+    return files
 
 
 def to_openai_messages(messages: list[BaseMessage]) -> list[dict]:

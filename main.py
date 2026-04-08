@@ -1,23 +1,31 @@
 from langchain_core.messages import HumanMessage, AIMessage
 
 from app.loader import load_and_split_transcript
-from app.retriever import build_retriever
+from app.retriever import build_retriever_with_logging
 from app.graph_builder import build_graph
-from app.config import COURSE_NAME, CHAPTERS
 
 
 def main():
-    docx_file, split_docs = load_and_split_transcript()
-    retriever = build_retriever(split_docs)
+    docx_files, split_docs = load_and_split_transcript()
+    retriever, docs_added, docs_skipped = build_retriever_with_logging(split_docs)
     graph = build_graph(retriever)
 
     print("=" * 70)
-    print("Transcript Chatbot Ready")
-    print(f"Loaded DOCX: {docx_file}")
-    print(f"Course: {COURSE_NAME}")
-    print("Chapters:")
-    for chapter in CHAPTERS:
-        print(f" - {chapter}")
+    print("Transcript Chatbot")
+    print(f"Loaded DOCX files: {len(docx_files)}")
+    for docx_file in docx_files:
+        print(f" - {docx_file}")
+
+    if docs_added:
+        print(f"\nNew documents indexed: {len(docs_added)}")
+        for doc_name in docs_added:
+            print(f"  + {doc_name}")
+
+    if docs_skipped:
+        print(f"\nDocuments already indexed: {len(docs_skipped)}")
+        for doc_name in docs_skipped:
+            print(f"  ~ {doc_name}")
+
     print("=" * 70)
     print(graph.get_graph(xray=True).draw_ascii())
 
@@ -25,6 +33,7 @@ def main():
         "messages": [],
         "summary": "",
         "retrieved_context": "",
+        "retrieved_sources": [],
         "has_context": False,
     }
 
@@ -49,6 +58,13 @@ def main():
         print("-" * 70)
         print(last_ai.content if last_ai else "No answer generated.")
 
+        retrieved_sources = result.get("retrieved_sources", [])
+        if retrieved_sources:
+            print("\nSOURCE DOCUMENTS:")
+            print("-" * 70)
+            for source_name in retrieved_sources:
+                print(f" - {source_name}")
+
         print("\nRETRIEVED TRANSCRIPT CONTEXT:")
         print("-" * 70)
         retrieved_context = result.get("retrieved_context", "").strip()
@@ -65,6 +81,7 @@ def main():
             "messages": result["messages"],
             "summary": result.get("summary", state["summary"]),
             "retrieved_context": "",
+            "retrieved_sources": [],
             "has_context": False,
         }
 

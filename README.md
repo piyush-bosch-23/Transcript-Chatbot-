@@ -1,98 +1,72 @@
 # Transcript Chatbot using LangGraph
 
-A conversational chatbot that answers questions from a course transcript stored in a DOCX file.
+A conversational chatbot that answers questions from one or more transcript documents stored as `.docx` files.
 
-The chatbot uses LangGraph for workflow orchestration, LangChain utilities for document retrieval, and a Bosch OpenAI-compatible API endpoint for generating responses.
+The project uses:
+- LangGraph for workflow orchestration
+- LangChain utilities for loading, splitting, and retrieval
+- Bosch text-embedding model for vector retrieval
+- ChromaDB (via `langchain-chroma` package) for vector storage and persistent retrieval
+- A Bosch OpenAI-compatible API endpoint for answer generation and summarization
+- Streamlit for the web UI
 
 ---
 
 # Features
 
-- Question answering from transcript documents
+- Chat over multiple transcript documents
+- Folder-based transcript loading from `transcripts/`
 - Retrieval-Augmented Generation (RAG)
-- LangGraph-based agent workflow
-- Conversation summarization for token efficiency
-- Conditional routing when no context is found
-- Displays retrieved transcript evidence
-- Uses Bosch internal OpenAI-compatible API
+- LangGraph-based routing
+- Conversation summarization for longer chats
+- CLI interface via `main.py`
+- Web UI via `app_ui.py`
+- Upload `.docx` files directly from the UI
+- Source document names shown with retrieved answers
+- Retrieved transcript evidence display
+- Content-based document deduplication preventing duplicate vectors
+- Vector index status display showing newly indexed vs. cached documents
+- Persistent ChromaDB storage across sessions
 
 ---
 
+## Project Structure
 
-## Architecture Overview
-
-```mermaid
-flowchart TD
-
-A[User Question]
-B[main.py CLI Interface]
-C[LangGraph Workflow]
-D[retrieve_context]
-E[answer_from_context]
-F[answer_no_context]
-G[summarize_history]
-H[Bosch OpenAI API]
-I[Generated Answer]
-
-A --> B
-B --> C
-C --> D
-D --> E
-D --> F
-E --> G
-F --> G
-G --> H
-H --> I
+```text
+Transcript-Chatbot-/
+|-- app/
+|   |-- bosch_client.py
+|   |-- config.py
+|   |-- graph_builder.py
+|   |-- loader.py
+|   |-- retriever.py
+|   |-- utils.py
+|-- transcripts/
+|   |-- *.docx
+|-- app_ui.py
+|-- main.py
+|-- requirements.txt
+|-- README.md
 ```
----
-
-# How It Works
-
-A. Document Loading
-
-  The transcript DOCX file is loaded using Docx2txtLoader.
-
-B. Text Splitting
-
-  Large transcripts are split into smaller chunks using RecursiveCharacterTextSplitter.
-  
-  This improves retrieval performance.
-
-C. Vectorization
-
-  Chunks are indexed using TFIDFRetriever.
-  
-  This converts transcript text into numerical vectors for similarity search.
-
-D. Query Retrieval
-
-  When a user asks a question:
-  
-  - The retriever searches transcript chunks
-  - The most relevant chunks are selected
-  - The context is passed to the LLM
-
-E. Answer Generation
-
-  The Bosch AI API receives:
-  
-  - system instructions
-  - retrieved transcript context
-  - conversation summary
-  - recent messages
-
-  The model generates the final response.
-
-F. Conversation Memory
-
-  Older messages are periodically summarized to:
-
-  - reduce token usage
-  - maintain conversation context
 
 ---
 
-## LangGraph Workflow
+## How It Works
+
+1. All `.docx` files from the transcripts folder are loaded.
+2. The documents are split into smaller chunks.
+3. Chunks are converted into vectors using the Bosch embeddings endpoint.
+4. Documents are deduplicated based on content hash to prevent storing duplicate vectors.
+5. Vectors are stored persistently in ChromaDB for fast retrieval across sessions.
+6. For each user question, the most relevant chunks are retrieved via cosine similarity.
+7. The source document names for those chunks are preserved.
+8. The retrieved context is passed into the Bosch LLM endpoint.
+9. LangGraph routes the flow depending on whether relevant context was found.
+10. Older chat history is summarized to keep the conversation compact.
+
+---
+
+## LangGraph Flow
 
 ```mermaid
 flowchart TD
@@ -110,64 +84,164 @@ E -->|long| G[summarize_history]
 
 G --> F
 ```
----
-
-# Installation
-
-Clone the repository:
-
-- git clone "repo-url"
-
-- cd transcript-chatbot
-
-Install dependencies:
-
-- pip install -r requirements.txt
 
 ---
 
-# Environment Variables
+## Requirements
 
-Set your Bosch API key:
+- Python 3.10+
+- Access to the Bosch OpenAI-compatible endpoint
+- Valid `GENAIPLATFORM_FARM_SUBSCRIPTION_KEY`
+- Network/proxy access if required by your environment
 
+---
+
+## Installation
+
+1. Create and activate your environment.
+2. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## Environment Variables
+
+Required:
+
+```env
 GENAIPLATFORM_FARM_SUBSCRIPTION_KEY=your_api_key_here
+```
 
-Example for Linux / Mac:
+Optional:
 
-export GENAIPLATFORM_FARM_SUBSCRIPTION_KEY=your_key
+```env
+TRANSCRIPTS_FOLDER=transcripts
+CHROMA_PERSIST_DIR=.chroma
+CHROMA_COLLECTION_PREFIX=transcript_chatbot
+```
 
-Example for Windows:
-
-set GENAIPLATFORM_FARM_SUBSCRIPTION_KEY=your_key
+Notes:
+- If `TRANSCRIPTS_FOLDER` is not set, the app uses `transcripts` by default.
+- You can set `TRANSCRIPTS_FOLDER` to any relative or absolute path.
 
 ---
 
-# Running the Chatbot
+## Add Transcript Documents
 
-Start the chatbot:
+Place one or more `.docx` transcript files inside the `transcripts/` folder.
 
+Example:
+
+```text
+transcripts/
+|-- Introduction_to_Data_and_Data_Science.docx
+|-- Module_2_Statistics.docx
+|-- Module_3_Machine_Learning.docx
+```
+
+All of these documents will be loaded and searched together by the chatbot.
+
+---
+
+## Run the CLI Chatbot
+
+```bash
 python main.py
+```
+
+What it does:
+- Loads all transcript files from the transcripts folder
+- Builds the retriever
+- Starts an interactive terminal chat session
+
+Type `exit` or `quit` to stop.
 
 ---
 
-# Key Components
+## Run the Streamlit UI
 
-main.py  
-CLI interface and runtime loop
+Standard command:
 
-loader.py  
-Loads and splits transcript
+```bash
+python -m streamlit run app_ui.py
+```
 
-retriever.py  
-Builds TF-IDF retriever
+If Streamlit is installed only in your `langgraph-agent` conda environment, run:
 
-graph_builder.py  
-LangGraph workflow
+```powershell
+& "C:\Users\<NT-ID>\.conda\envs\langgraph-agent\python.exe" -m streamlit run app_ui.py
+```
 
-bosch_client.py  
-Bosch API integration
+The Streamlit app provides:
+- Chat interface
+- Sidebar with vector index status (newly indexed documents and cached documents)
+- List of loaded transcript files
+- Direct `.docx` upload from the browser
+- Upload status per file
+- Source filenames displayed with each answer
+- Retrieved transcript context for each answer
+- Clear conversation button
 
-config.py  
-Configuration parameters
+Uploaded files are saved under `transcripts/_ui_uploads` and are indexed together with any files already present in `transcripts/`.
 
 ---
+
+## Key Files
+
+- `main.py`: CLI entrypoint
+- `app_ui.py`: Streamlit UI entrypoint
+- `app/loader.py`: loads and splits all `.docx` files from the configured folder
+- `app/embedding_client.py`: Bosch embeddings API client with batching support
+- `app/retriever.py`: builds the ChromaDB retriever with content-based deduplication and logging
+- `app/graph_builder.py`: defines the LangGraph workflow
+- `app/bosch_client.py`: Bosch API integration
+- `app/config.py`: environment variables and runtime settings
+- `app/utils.py`: helper functions including transcript file discovery
+
+---
+
+## Current Retrieval Design
+
+This version uses Bosch embeddings with ChromaDB, which means:
+- Retrieval is vector-based and semantic
+- Vectors are stored persistently in a ChromaDB directory (`.chroma/` by default)
+- Documents are deduplicated by content hash to prevent duplicate vector storage
+- All transcript files are merged into one searchable corpus during startup
+- Retrieved answers can be traced back to their source document names
+- Subsequent runs load the indexed vectors from disk without re-embedding
+
+---
+
+## Troubleshooting
+
+### No transcript files found
+
+Make sure there is at least one `.docx` file inside the configured transcripts folder.
+
+### Bosch API connection fails
+
+If you see proxy or connection errors:
+- check your VPN or corporate network connection
+- verify the configured proxy in `app/config.py`
+- confirm the subscription key is set correctly
+
+### Streamlit command not found
+
+Run it with:
+
+```powershell
+& "C:\Users\<NT-ID>\.conda\envs\langgraph-agent\python.exe" -m streamlit run app_ui.py
+```
+
+This uses the environment where Streamlit is installed.
+
+---
+
+## Next Enhancements
+
+- Document metadata filters
+- Show source file per retrieved chunk, not only per answer
+- Add document management details such as file size and upload timestamp
