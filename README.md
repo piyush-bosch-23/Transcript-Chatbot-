@@ -1,6 +1,6 @@
 # Transcript Chatbot using LangGraph
 
-A conversational chatbot that answers questions from one or more transcript documents stored as `.docx` files.
+A conversational chatbot that answers questions from one or more transcript documents stored as `.docx` or `.pdf` files.
 
 The project uses:
 - LangGraph for workflow orchestration
@@ -21,7 +21,7 @@ The project uses:
 - Conversation summarization for longer chats
 - CLI interface via `main.py`
 - Web UI via `app_ui.py`
-- Upload `.docx` files directly from the UI
+- Upload `.docx` and `.pdf` files directly from the UI
 - Source document names shown with retrieved answers
 - Retrieved transcript evidence display
 - Content-based document deduplication preventing duplicate vectors
@@ -42,7 +42,7 @@ Transcript-Chatbot-/
 |   |-- retriever.py
 |   |-- utils.py
 |-- transcripts/
-|   |-- *.docx
+|   |-- *.docx / *.pdf
 |-- app_ui.py
 |-- main.py
 |-- requirements.txt
@@ -53,7 +53,7 @@ Transcript-Chatbot-/
 
 ## How It Works
 
-1. All `.docx` files from the transcripts folder are loaded.
+1. All `.docx` and `.pdf` files from the transcripts folder are loaded.
 2. The documents are split into smaller chunks.
 3. Chunks are converted into vectors using the Bosch embeddings endpoint.
 4. Documents are deduplicated based on content hash to prevent storing duplicate vectors.
@@ -131,7 +131,7 @@ Notes:
 
 ## Add Transcript Documents
 
-Place one or more `.docx` transcript files inside the `transcripts/` folder.
+Place one or more `.docx` or `.pdf` transcript files inside the `transcripts/` folder.
 
 Example:
 
@@ -179,7 +179,7 @@ The Streamlit app provides:
 - Chat interface
 - Sidebar with vector index status (newly indexed documents and cached documents)
 - List of loaded transcript files
-- Direct `.docx` upload from the browser
+- Direct `.docx`/`.pdf` upload from the browser
 - Upload status per file
 - Source filenames displayed with each answer
 - Retrieved transcript context for each answer
@@ -193,7 +193,7 @@ Uploaded files are saved under `transcripts/_ui_uploads` and are indexed togethe
 
 - `main.py`: CLI entrypoint
 - `app_ui.py`: Streamlit UI entrypoint
-- `app/loader.py`: loads and splits all `.docx` files from the configured folder
+- `app/loader.py`: loads and splits all supported transcript files (`.docx`, `.pdf`) from the configured folder
 - `app/embedding_client.py`: Bosch embeddings API client with batching support
 - `app/retriever.py`: builds the ChromaDB retriever with content-based deduplication and logging
 - `app/graph_builder.py`: defines the LangGraph workflow
@@ -219,7 +219,7 @@ This version uses Bosch embeddings with ChromaDB, which means:
 
 ### No transcript files found
 
-Make sure there is at least one `.docx` file inside the configured transcripts folder.
+Make sure there is at least one supported transcript file (`.docx` or `.pdf`) inside the configured transcripts folder.
 
 ### Bosch API connection fails
 

@@ -2,7 +2,32 @@ import os
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, SystemMessage
 
 
+SUPPORTED_TRANSCRIPT_EXTENSIONS = (".docx", ".pdf")
+
+
+def find_transcript_files(folder: str) -> list[str]:
+    if not os.path.isdir(folder):
+        raise FileNotFoundError(f"Transcript folder not found: {folder}")
+
+    files = [
+        os.path.join(folder, file_name)
+        for file_name in os.listdir(folder)
+        if file_name.lower().endswith(SUPPORTED_TRANSCRIPT_EXTENSIONS)
+    ]
+
+    files.sort(key=lambda p: os.path.basename(p).lower())
+
+    if not files:
+        supported = ", ".join(SUPPORTED_TRANSCRIPT_EXTENSIONS)
+        raise FileNotFoundError(
+            f"No transcript files ({supported}) found in folder: {folder}"
+        )
+
+    return files
+
+
 def find_docx_files(folder: str) -> list[str]:
+    """Backward-compatible helper for existing DOCX-only call sites."""
     if not os.path.isdir(folder):
         raise FileNotFoundError(f"Transcript folder not found: {folder}")
 

@@ -7,7 +7,7 @@ from app.loader import load_and_split_transcript
 from app.retriever import build_retriever_with_logging, get_chroma_stats
 from app.graph_builder import build_graph
 from app.config import TRANSCRIPTS_FOLDER
-from app.utils import find_docx_files
+from app.utils import find_transcript_files
 
 
 # ── Page config ──────────────────────────────────────────────────────────────
@@ -32,28 +32,28 @@ def reset_chat_state():
     }
 
 
-def list_uploaded_docx_files() -> list[str]:
+def list_uploaded_document_files() -> list[str]:
     if not os.path.isdir(UPLOADS_DIR):
         return []
     try:
-        return find_docx_files(UPLOADS_DIR)
+        return find_transcript_files(UPLOADS_DIR)
     except FileNotFoundError:
         return []
 
 
-def get_all_docx_files() -> list[str]:
-    docx_files = []
+def get_all_document_files() -> list[str]:
+    document_files = []
 
     if os.path.isdir(TRANSCRIPTS_FOLDER):
         try:
-            for path in find_docx_files(TRANSCRIPTS_FOLDER):
+            for path in find_transcript_files(TRANSCRIPTS_FOLDER):
                 if os.path.dirname(path) != os.path.abspath(UPLOADS_DIR):
-                    docx_files.append(path)
+                    document_files.append(path)
         except FileNotFoundError:
             pass
 
-    docx_files.extend(list_uploaded_docx_files())
-    return docx_files
+    document_files.extend(list_uploaded_document_files())
+    return document_files
 
 
 def save_uploaded_files(uploaded_files) -> list[str]:
@@ -87,11 +87,11 @@ def save_uploaded_files(uploaded_files) -> list[str]:
 
 # ── Load graph once per session ───────────────────────────────────────────────
 @st.cache_resource(show_spinner="Loading transcript documents and building index…")
-def load_graph(docx_files: tuple[str, ...]):
-    docx_files, split_docs = load_and_split_transcript(list(docx_files))
-    retriever, docs_added, docs_skipped = build_retriever_with_logging(split_docs)
+def load_graph(document_files: tuple[str, ...]):
+    document_files, split_docs = load_and_split_transcript(list(document_files))
+    retriever, docs_added, docs_replaced, docs_skipped = build_retriever_with_logging(split_docs)
     graph = build_graph(retriever)
-    return graph, docx_files, docs_added, docs_skipped
+    return graph, document_files, docs_added, docs_replaced, docs_skipped
 
 
 if "chat_messages" not in st.session_state:
@@ -104,15 +104,19 @@ if "upload_results" not in st.session_state:
     st.session_state.upload_results = []
 
 if "chroma_status" not in st.session_state:
-    st.session_state.chroma_status = {"added": [], "skipped": []}
+    st.session_state.chroma_status = {"added": [], "replaced": [], "skipped": []}
 
-all_docx_files = get_all_docx_files()
+all_document_files = get_all_document_files()
 
-if all_docx_files:
-    graph, docx_files, docs_added, docs_skipped = load_graph(tuple(all_docx_files))
-    st.session_state.chroma_status = {"added": docs_added, "skipped": docs_skipped}
+if all_document_files:
+    graph, document_files, docs_added, docs_replaced, docs_skipped = load_graph(tuple(all_document_files))
+    st.session_state.chroma_status = {
+        "added": docs_added,
+        "replaced": docs_replaced,
+        "skipped": docs_skipped,
+    }
 else:
-    graph, docx_files = None, []
+    graph, document_files = None, []
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -121,14 +125,14 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("Upload Documents")
     uploaded_files = st.file_uploader(
-        "Add one or more .docx files",
-        type=["docx"],
+        "Add one or more .docx or .pdf files",
+        type=["docx", "pdf"],
         accept_multiple_files=True,
     )
 
     if st.button("Index uploaded documents", use_container_width=True):
         if not uploaded_files:
-            st.info("Choose at least one .docx file to upload.")
+            st.info("Choose at least one .docx or .pdf file to upload.")
         else:
             saved_files = save_uploaded_files(uploaded_files)
             st.session_state.upload_results = saved_files
@@ -144,14 +148,14 @@ with st.sidebar:
                 f"- {upload_result['name']}: {upload_result['status']}"
             )
 
-    uploaded_docx_files = list_uploaded_docx_files()
-    if uploaded_docx_files:
+    uploaded_document_files = list_uploaded_document_files()
+    if uploaded_document_files:
         st.caption("Uploaded in UI session storage")
-        for file_path in uploaded_docx_files:
+        for file_path in uploaded_document_files:
             st.markdown(f"- `{os.path.basename(file_path)}`")
 
         if st.button("Remove uploaded documents", use_container_width=True):
-            for file_path in uploaded_docx_files:
+            for file_path in uploaded_document_files:
                 os.remove(file_path)
             st.session_state.upload_results = []
             load_graph.clear()
@@ -160,18 +164,26 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("Loaded Documents")
-    for f in docx_files:
+    for f in document_files:
         st.markdown(f"- `{os.path.basename(f)}`")
 
-    if st.session_state.chroma_status.get("added") or st.session_state.chroma_status.get("skipped"):
+    if (
+        st.session_state.chroma_status.get("added")
+        or st.session_state.chroma_status.get("replaced")
+        or st.session_state.chroma_status.get("skipped")
+    ):
         st.markdown("---")
-        st.subheader("Vector Index Status")
+        st.subheader("Duplicate Handling Report")
         if st.session_state.chroma_status.get("added"):
             with st.expander("✅ New documents indexed"):
                 for doc_name in st.session_state.chroma_status.get("added", []):
                     st.caption(f"+ {doc_name}")
+        if st.session_state.chroma_status.get("replaced"):
+            with st.expander("♻️ Existing filenames replaced (content changed)"):
+                for doc_name in st.session_state.chroma_status.get("replaced", []):
+                    st.caption(f"↺ {doc_name}")
         if st.session_state.chroma_status.get("skipped"):
-            with st.expander("~ Already indexed"):
+            with st.expander("~ Duplicate content skipped"):
                 for doc_name in st.session_state.chroma_status.get("skipped", []):
                     st.caption(f"~ {doc_name}")
 
@@ -196,8 +208,8 @@ with st.sidebar:
 # ── Main UI ───────────────────────────────────────────────────────────────────
 st.header("💬 Ask questions about your Documents")
 
-if not docx_files:
-    st.info("Add transcript .docx files in the sidebar or place them in the transcripts folder to start chatting.")
+if not document_files:
+    st.info("Add transcript .docx/.pdf files in the sidebar or place them in the transcripts folder to start chatting.")
 
 
 def render_retrieved_context(context: str):

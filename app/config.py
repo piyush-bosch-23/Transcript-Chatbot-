@@ -27,7 +27,7 @@ PROXIES = {
     "https": "http://127.0.0.1:3128",
 }
 
-# Folder that contains transcript DOCX files for retrieval.
+# Folder that contains transcript files (.docx/.pdf) for retrieval.
 # Supports relative paths like "transcripts" or an absolute path.
 TRANSCRIPTS_FOLDER = os.getenv("TRANSCRIPTS_FOLDER", "transcripts")
 

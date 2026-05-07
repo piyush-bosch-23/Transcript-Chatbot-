@@ -6,23 +6,28 @@ from app.graph_builder import build_graph
 
 
 def main():
-    docx_files, split_docs = load_and_split_transcript()
-    retriever, docs_added, docs_skipped = build_retriever_with_logging(split_docs)
+    document_files, split_docs = load_and_split_transcript()
+    retriever, docs_added, docs_replaced, docs_skipped = build_retriever_with_logging(split_docs)
     graph = build_graph(retriever)
 
     print("=" * 70)
     print("Transcript Chatbot")
-    print(f"Loaded DOCX files: {len(docx_files)}")
-    for docx_file in docx_files:
-        print(f" - {docx_file}")
+    print(f"Loaded documents: {len(document_files)}")
+    for document_file in document_files:
+        print(f" - {document_file}")
 
     if docs_added:
         print(f"\nNew documents indexed: {len(docs_added)}")
         for doc_name in docs_added:
             print(f"  + {doc_name}")
 
+    if docs_replaced:
+        print(f"\nReplaced existing filenames (content changed): {len(docs_replaced)}")
+        for doc_name in docs_replaced:
+            print(f"  ↺ {doc_name}")
+
     if docs_skipped:
-        print(f"\nDocuments already indexed: {len(docs_skipped)}")
+        print(f"\nDuplicate-content documents skipped: {len(docs_skipped)}")
         for doc_name in docs_skipped:
             print(f"  ~ {doc_name}")
 

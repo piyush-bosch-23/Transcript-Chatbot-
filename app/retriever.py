@@ -1,5 +1,6 @@
 import os
 import hashlib
+from collections import defaultdict
 
 from langchain_core.embeddings import Embeddings
 from langchain_chroma import Chroma
@@ -25,19 +26,113 @@ def _document_content_hash(doc_content: str) -> str:
     return hashlib.sha256(doc_content.encode("utf-8")).hexdigest()[:16]
 
 
+def _document_hash_from_chunks(chunks: list) -> str:
+    """Hash the full document content reconstructed from ordered chunks."""
+    full_text = "\n".join(doc.page_content for doc in chunks)
+    return hashlib.sha256(full_text.encode("utf-8")).hexdigest()
+
+
 def _build_collection_name() -> str:
     """Use stable collection name across all documents."""
     return CHROMA_COLLECTION_PREFIX.replace(" ", "_").lower()
 
 
-def _get_existing_doc_hashes(vectorstore) -> set[str]:
-    """Retrieve set of existing document IDs from ChromaDB collection."""
+def _get_existing_index_state(vectorstore) -> tuple[set[str], dict[str, list[str]], dict[str, list[str]]]:
+    """Return existing IDs and indexes by document-hash and source path."""
     try:
-        all_docs = vectorstore.get(include=[])
-        doc_ids = all_docs.get("ids", [])
-        return set(doc_ids)
+        all_docs = vectorstore.get(include=["metadatas"])
+        ids = all_docs.get("ids", [])
+        metadatas = all_docs.get("metadatas", [])
+
+        by_doc_hash = defaultdict(list)
+        by_source = defaultdict(list)
+
+        for doc_id, metadata in zip(ids, metadatas):
+            if not metadata:
+                continue
+
+            doc_hash = metadata.get("doc_hash")
+            source = metadata.get("source", "")
+
+            if doc_hash:
+                by_doc_hash[doc_hash].append(doc_id)
+            if source:
+                by_source[source].append(doc_id)
+
+        return set(ids), dict(by_doc_hash), dict(by_source)
     except Exception:
-        return set()
+        return set(), {}, {}
+
+
+def _group_by_source(split_docs) -> dict[str, list]:
+    grouped = defaultdict(list)
+    for doc in split_docs:
+        source = doc.metadata.get("source", "")
+        grouped[source].append(doc)
+    return dict(grouped)
+
+
+def _prepare_docs_for_upsert(vectorstore, split_docs, with_logging: bool = False):
+    existing_ids, by_doc_hash, by_source = _get_existing_index_state(vectorstore)
+    grouped_docs = _group_by_source(split_docs)
+
+    docs_to_add = []
+    ids_to_add = []
+    ids_to_delete = []
+    docs_added_set = set()
+    docs_replaced_set = set()
+    docs_skipped_set = set()
+
+    for source, docs in grouped_docs.items():
+        if not docs:
+            continue
+
+        filename = os.path.basename(source) if source else "Unknown source"
+        doc_hash = _document_hash_from_chunks(docs)
+
+        # Exact content already indexed (even under another file name/path).
+        if doc_hash in by_doc_hash:
+            if with_logging:
+                docs_skipped_set.add(filename)
+            continue
+
+        # Same source path exists with different content; replace stale vectors.
+        existing_source_ids = by_source.get(source, [])
+        if existing_source_ids:
+            ids_to_delete.extend(existing_source_ids)
+            for existing_id in existing_source_ids:
+                existing_ids.discard(existing_id)
+            if with_logging:
+                docs_replaced_set.add(filename)
+
+        source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()[:12]
+        source_added = False
+
+        for index, doc in enumerate(docs):
+            content_hash = _document_content_hash(doc.page_content)
+            doc.metadata["content_hash"] = content_hash
+            doc.metadata["doc_hash"] = doc_hash
+
+            doc_id = f"{source_hash}_{doc_hash[:16]}_{index}_{content_hash[:8]}"
+            if doc_id in existing_ids:
+                continue
+
+            docs_to_add.append(doc)
+            ids_to_add.append(doc_id)
+            existing_ids.add(doc_id)
+            source_added = True
+
+        if with_logging and source_added:
+            docs_added_set.add(filename)
+
+    return (
+        docs_to_add,
+        ids_to_add,
+        ids_to_delete,
+        docs_added_set,
+        docs_replaced_set,
+        docs_skipped_set,
+    )
 
 
 def build_retriever(split_docs):
@@ -51,24 +146,16 @@ def build_retriever(split_docs):
         persist_directory=CHROMA_PERSIST_DIR,
     )
 
-    existing_hashes = _get_existing_doc_hashes(vectorstore)
-    docs_to_add = []
+    docs_to_add, ids_to_add, ids_to_delete, _, _, _ = _prepare_docs_for_upsert(
+        vectorstore,
+        split_docs,
+    )
 
-    for doc in split_docs:
-        source = doc.metadata.get("source", "")
-        content_hash = _document_content_hash(doc.page_content)
-        doc_id = f"{os.path.basename(source)}_{content_hash}"
-
-        if doc_id not in existing_hashes:
-            doc.metadata["content_hash"] = content_hash
-            docs_to_add.append(doc)
+    if ids_to_delete:
+        vectorstore.delete(ids=ids_to_delete)
 
     if docs_to_add:
-        vectorstore.add_documents(
-            docs_to_add,
-            ids=[f"{os.path.basename(doc.metadata.get('source', ''))}_{doc.metadata.get('content_hash')}"
-                  for doc in docs_to_add]
-        )
+        vectorstore.add_documents(docs_to_add, ids=ids_to_add)
 
     return vectorstore.as_retriever(
         search_type="similarity",
@@ -77,7 +164,7 @@ def build_retriever(split_docs):
 
 
 def build_retriever_with_logging(split_docs) -> tuple:
-    """Build retriever and return (retriever, added_docs_list, skipped_docs_list) for logging.
+    """Build retriever and return (retriever, added_docs, replaced_docs, skipped_docs).
     
     Note: Returns unique document filenames (deduped across chunks).
     """
@@ -90,30 +177,17 @@ def build_retriever_with_logging(split_docs) -> tuple:
         persist_directory=CHROMA_PERSIST_DIR,
     )
 
-    existing_hashes = _get_existing_doc_hashes(vectorstore)
-    docs_to_add = []
-    docs_added_set = set()
-    docs_skipped_set = set()
+    docs_to_add, ids_to_add, ids_to_delete, docs_added_set, docs_replaced_set, docs_skipped_set = _prepare_docs_for_upsert(
+        vectorstore,
+        split_docs,
+        with_logging=True,
+    )
 
-    for doc in split_docs:
-        source = doc.metadata.get("source", "")
-        content_hash = _document_content_hash(doc.page_content)
-        doc_id = f"{os.path.basename(source)}_{content_hash}"
-        filename = os.path.basename(source)
-
-        if doc_id in existing_hashes:
-            docs_skipped_set.add(filename)
-        else:
-            doc.metadata["content_hash"] = content_hash
-            docs_to_add.append(doc)
-            docs_added_set.add(filename)
+    if ids_to_delete:
+        vectorstore.delete(ids=ids_to_delete)
 
     if docs_to_add:
-        vectorstore.add_documents(
-            docs_to_add,
-            ids=[f"{os.path.basename(doc.metadata.get('source', ''))}_{doc.metadata.get('content_hash')}"
-                  for doc in docs_to_add]
-        )
+        vectorstore.add_documents(docs_to_add, ids=ids_to_add)
 
     retriever = vectorstore.as_retriever(
         search_type="similarity",
@@ -122,9 +196,10 @@ def build_retriever_with_logging(split_docs) -> tuple:
 
     # Convert sets to sorted lists for consistent ordering
     docs_added = sorted(list(docs_added_set))
+    docs_replaced = sorted(list(docs_replaced_set))
     docs_skipped = sorted(list(docs_skipped_set))
 
-    return retriever, docs_added, docs_skipped
+    return retriever, docs_added, docs_replaced, docs_skipped
 
 
 def _get_source_name(doc) -> str:
@@ -214,16 +289,19 @@ def get_chroma_stats() -> dict:
         )
         
         # Get all documents in the collection
-        all_data = vectorstore.get(include=[])
+        all_data = vectorstore.get(include=["metadatas"])
         chunk_ids = all_data.get("ids", [])
+        metadatas = all_data.get("metadatas", [])
         stats["total_chunks"] = len(chunk_ids)
         
-        # Extract unique document names from chunk IDs (format: "filename_hash")
-        for chunk_id in chunk_ids:
-            parts = chunk_id.rsplit("_", 1)  # Split on last underscore (hash separator)
-            if parts:
-                doc_name = parts[0]
-                stats["unique_docs"].add(doc_name)
+        # Extract unique document names from metadata source paths.
+        for metadata in metadatas:
+            if not metadata:
+                continue
+
+            source = metadata.get("source", "")
+            if source:
+                stats["unique_docs"].add(os.path.basename(source))
         
         # Calculate disk usage of .chroma directory
         if os.path.isdir(CHROMA_PERSIST_DIR):
