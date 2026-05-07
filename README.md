@@ -239,9 +239,3 @@ Run it with:
 This uses the environment where Streamlit is installed.
 
 ---
-
-## Next Enhancements
-
-- Document metadata filters
-- Show source file per retrieved chunk, not only per answer
-- Add document management details such as file size and upload timestamp
