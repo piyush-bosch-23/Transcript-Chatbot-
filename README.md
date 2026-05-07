@@ -1,4 +1,4 @@
-# Transcript Chatbot using LangGraph
+# Document Chatbot using LangGraph
 
 A conversational chatbot that answers questions from one or more transcript documents stored as `.docx` or `.pdf` files.
 
